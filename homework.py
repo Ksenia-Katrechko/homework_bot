@@ -16,7 +16,6 @@ except locale.Error:
 
 
 logger = logging.getLogger(__name__)
-locale.setlocale(locale.LC_ALL, ('ru_RU', 'UTF-8'))
 logger.setLevel(logging.DEBUG)
 formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 ch = logging.StreamHandler()
