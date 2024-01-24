@@ -7,6 +7,14 @@ import logging
 
 from dotenv import load_dotenv
 
+supported_locale = 'ru_RU.UTF-8'
+
+try:
+    locale.setlocale(locale.LC_ALL, supported_locale)
+except locale.Error:
+    print("Не удалось установить поддерживаемую локаль.")
+
+
 logger = logging.getLogger(__name__)
 locale.setlocale(locale.LC_ALL, ('ru_RU', 'UTF-8'))
 logger.setLevel(logging.DEBUG)
