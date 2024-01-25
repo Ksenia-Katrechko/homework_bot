@@ -1,11 +1,13 @@
 import locale
-import os
-import time
-import telegram
-import requests
 import logging
+import os
+import requests
+import sys
+import telegram
+import time
 
 from dotenv import load_dotenv
+from exceptions import APIExceptions
 
 supported_locale = 'ru_RU.UTF-8'
 
@@ -42,25 +44,6 @@ HOMEWORK_VERDICTS = {
 }
 
 
-class APIException(Exception):
-    """Класс для обработки API."""
-
-    ...
-
-
-def check_tokens(*keys):
-    """Проверяем доступность переменных окружения."""
-    tokens = []
-    for key in keys:
-        token = os.getenv(key)
-        if token is None:
-            logger.critical(f'Не передано значение для переменной окружения:'
-                            f'{key}')
-            exit(1)
-        tokens.append(token)
-    return tokens
-
-
 def send_message(bot, message):
     """Отправляем сообщение в Telegram чат."""
     try:
@@ -68,7 +51,7 @@ def send_message(bot, message):
         logger.debug(f'Сообщение "{message}" успешно отправлено в Телеграм')
     except telegram.TelegramError as e:
         logger.error(f'Ошибка при отправке сообщения: {e}')
-        raise APIException('Ошибка при отправке сообщения в Телеграм.') from e
+        raise APIExceptions('Ошибка при отправке сообщения в Телеграм.') from e
 
 
 def get_api_answer(timestamp):
@@ -81,35 +64,35 @@ def get_api_answer(timestamp):
         response = requests.get(ENDPOINT, headers=HEADERS, params=params)
         response.raise_for_status()
         if response.status_code != 200:
-            raise APIException(f'Ошибка при запросе к API:'
-                               f'{response.status_code}')
+            raise APIExceptions(f'Ошибка при запросе к API:'
+                                f'{response.status_code}')
         return response.json()
     except requests.exceptions.RequestException as e:
         logger.error(f'Ошибка при запросе к API: {e}')
-        raise APIException('Ошибка при запросе к API.') from e
+        raise APIExceptions('Ошибка при запросе к API.') from e
 
 
 def check_response(response):
     """Проверяем ответ API на соответствие документации."""
     if 'error' in response:
-        raise APIException(f"Ошибка при получении данных API:"
-                           f"{response['error']}")
+        raise APIExceptions(f"Ошибка при получении данных API:"
+                            f"{response['error']}")
     if not isinstance(response, dict):
         raise TypeError("Ответ API не представлен в виде словаря")
     if 'homeworks' not in response:
-        raise APIException("В ответе API отсутствует ключ 'homeworks'")
+        raise APIExceptions("В ответе API отсутствует ключ 'homeworks'")
     if not isinstance(response['homeworks'], list):
         raise TypeError("Данные о домашней работе не представлены в виде"
                         "списка")
     if not response['homeworks']:
-        raise APIException("В ответе API отсутствуют данные о домашней работе")
+        raise APIExceptions("В ответе отсутствуют данные о домашней работе")
     for homework in response['homeworks']:
         if 'status' not in homework:
-            raise APIException("В ответе API отсутствует ключ 'status' для"
-                               "домашней работы")
+            raise APIExceptions("В ответе API отсутствует ключ 'status' для"
+                                "домашней работы")
         status = homework['status']
         if status not in HOMEWORK_VERDICTS:
-            raise APIException(f"Некорректный статус домашней работы:{status}")
+            raise APIExceptions(f"Некорректный статус работы:{status}")
     return True
 
 
@@ -132,18 +115,16 @@ def parse_status(homework):
         raise ValueError("Отсутствует ключ 'status' в ответе API.")
 
 
+def check_tokens():
+    """Проверяем доступность переменных окружения."""
+    return all([PRACTICUM_TOKEN, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID])
+
+
 def main():
     """Основная логика работы бота."""
     if check_tokens() is False:
-        logger.critical('Отсутствует обязательная переменная окружения. '
-                        'Программа принудительно остановлена.')
-        raise SystemExit
-    logger.debug('Бот запущен')
-    try:
-        check_tokens()
-    except ValueError as e:
-        logger.error(f'Ошибка при проверке токенов: {e}')
-        exit(0)
+        logger.critical("Отсутствует обязательная переменная окружения")
+        sys.exit()
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
     timestamp = int(time.time())
     while True:
@@ -155,7 +136,7 @@ def main():
                 for homework in homeworks:
                     message = parse_status(homework)
                     send_message(bot, message)
-            except APIException as e:
+            except APIExceptions as e:
                 logger.error(f'Ошибка API: {e}')
         timestamp = response['current_date']
         time.sleep(RETRY_PERIOD)
