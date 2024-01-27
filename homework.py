@@ -7,7 +7,8 @@ import telegram
 import time
 
 from dotenv import load_dotenv
-from exceptions import APIExceptions
+from exceptions import APIException, APITelegramException, APIOtherException
+from logger_config import configure_logger
 
 supported_locale = 'ru_RU.UTF-8'
 
@@ -18,13 +19,6 @@ except locale.Error:
 
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-ch = logging.StreamHandler()
-ch.setLevel(logging.DEBUG)
-ch.setFormatter(formatter)
-logger.addHandler(ch)
-
 
 load_dotenv()
 
@@ -51,7 +45,8 @@ def send_message(bot, message):
         logger.debug(f'Сообщение "{message}" успешно отправлено в Телеграм')
     except telegram.TelegramError as e:
         logger.error(f'Ошибка при отправке сообщения: {e}')
-        raise APIExceptions('Ошибка при отправке сообщения в Телеграм.') from e
+        raise APITelegramException('Ошибка при отправке'
+                                   'сообщения в Телеграм.') from e
 
 
 def get_api_answer(timestamp):
@@ -64,55 +59,52 @@ def get_api_answer(timestamp):
         response = requests.get(ENDPOINT, headers=HEADERS, params=params)
         response.raise_for_status()
         if response.status_code != 200:
-            raise APIExceptions(f'Ошибка при запросе к API:'
-                                f'{response.status_code}')
+            raise APIOtherException(f'Ошибка при запросе к API:'
+                                    f'{response.status_code}')
         return response.json()
     except requests.exceptions.RequestException as e:
-        logger.error(f'Ошибка при запросе к API: {e}')
-        raise APIExceptions('Ошибка при запросе к API.') from e
+        raise APIOtherException('Ошибка при запросе к API:'
+                                '{e}, {params}') from e
 
 
 def check_response(response):
     """Проверяем ответ API на соответствие документации."""
     if 'error' in response:
-        raise APIExceptions(f"Ошибка при получении данных API:"
-                            f"{response['error']}")
+        raise APIException(f"Ошибка при получении данных API:"
+                           f"{response['error']}")
     if not isinstance(response, dict):
-        raise TypeError("Ответ API не представлен в виде словаря")
+        raise TypeError("Ответ API не представлен в виде словаря,"
+                        "получен тип: {response_type}")
     if 'homeworks' not in response:
-        raise APIExceptions("В ответе API отсутствует ключ 'homeworks'")
+        raise KeyError("В ответе API отсутствует ключ 'homeworks'")
     if not isinstance(response['homeworks'], list):
         raise TypeError("Данные о домашней работе не представлены в виде"
-                        "списка")
+                        "списка, получен тип: {data_type}")
     if not response['homeworks']:
-        raise APIExceptions("В ответе отсутствуют данные о домашней работе")
+        raise APIException("В ответе отсутствуют данные о домашней работе")
     for homework in response['homeworks']:
         if 'status' not in homework:
-            raise APIExceptions("В ответе API отсутствует ключ 'status' для"
-                                "домашней работы")
+            raise KeyError("В ответе API отсутствует ключ 'status' для"
+                           "домашней работы")
         status = homework['status']
         if status not in HOMEWORK_VERDICTS:
-            raise APIExceptions(f"Некорректный статус работы:{status}")
+            raise APIException(f"Некорректный статус работы:{status}")
     return True
 
 
 def parse_status(homework):
     """Извлекаем статус домашней работы."""
-    status = homework.get("status")
     homework_name = homework.get("homework_name")
-    if not homework_name:
-        raise ValueError("Отсутствует ключ 'homework_name' в ответе API")
-    if status:
-        if status in HOMEWORK_VERDICTS:
-            verdict = HOMEWORK_VERDICTS[status]
-            return (
-                f'Изменился статус проверки работы "{homework_name}".'
-                f'{verdict}'
-            )
-        else:
-            raise ValueError("Недокументированный статус домашней работы.")
-    else:
-        raise ValueError("Отсутствует ключ 'status' в ответе API.")
+    if homework_name is None:
+        raise KeyError("Отсутствует ключ 'homework_name'"
+                       "в ответе API")
+    status = homework.get("status")
+    if status is None:
+        raise KeyError("Отсутствует ключ 'status' в ответе API.")
+    if status not in HOMEWORK_VERDICTS:
+        raise ValueError("Недокументированный статус домашней работы.")
+    verdict = HOMEWORK_VERDICTS[status]
+    return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
 
 def check_tokens():
@@ -128,19 +120,30 @@ def main():
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
     timestamp = int(time.time())
     while True:
-        response = get_api_answer(timestamp)
+        try:
+            response = get_api_answer(timestamp)
+        except Exception as e:
+            logger.error(f"Ошибка при запросе данных API: {e}")
+            time.sleep(RETRY_PERIOD)
+            continue
         if response:
             try:
                 check_response(response)
-                homeworks = response['homeworks']
+                homeworks = response.get('homeworks', [])
                 for homework in homeworks:
+                    messages_sent = []
                     message = parse_status(homework)
-                    send_message(bot, message)
-            except APIExceptions as e:
+                    if message not in messages_sent:
+                        send_message(bot, message)
+                        messages_sent.append(message)
+            except APIException as e:
                 logger.error(f'Ошибка API: {e}')
-        timestamp = response['current_date']
+            except Exception as e:
+                logger.error(f'Неизвестная ошибка: {e}')
+        timestamp = response.get('current_date', int(time.time()))
         time.sleep(RETRY_PERIOD)
 
 
 if __name__ == '__main__':
+    configure_logger()
     main()
