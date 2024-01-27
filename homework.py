@@ -114,34 +114,39 @@ def check_tokens():
 
 def main():
     """Основная логика работы бота."""
-    if check_tokens() is False:
+    if not check_tokens():
         logger.critical("Отсутствует обязательная переменная окружения")
         sys.exit()
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
-    timestamp = int(time.time())
     while True:
+        timestamp = int(time.time())
         try:
             response = get_api_answer(timestamp)
+            process_response(bot, response)
         except Exception as e:
             logger.error(f"Ошибка при запросе данных API: {e}")
             time.sleep(RETRY_PERIOD)
             continue
-        if response:
-            try:
-                check_response(response)
-                homeworks = response.get('homeworks', [])
-                for homework in homeworks:
-                    messages_sent = []
-                    message = parse_status(homework)
-                    if message not in messages_sent:
-                        send_message(bot, message)
-                        messages_sent.append(message)
-            except APIException as e:
-                logger.error(f'Ошибка API: {e}')
-            except Exception as e:
-                logger.error(f'Неизвестная ошибка: {e}')
-        timestamp = response.get('current_date', int(time.time()))
+
         time.sleep(RETRY_PERIOD)
+
+
+def process_response(bot, response):
+    """Обработка ответа."""
+    if response:
+        try:
+            check_response(response)
+            homeworks = response.get('homeworks', [])
+            messages_sent = []
+            for homework in homeworks:
+                message = parse_status(homework)
+                if message not in messages_sent:
+                    send_message(bot, message)
+                    messages_sent.append(message)
+        except APIException as e:
+            logger.error(f'Ошибка API: {e}')
+        except Exception as e:
+            logger.error(f'Неизвестная ошибка: {e}')
 
 
 if __name__ == '__main__':
