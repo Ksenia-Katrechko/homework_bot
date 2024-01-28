@@ -125,10 +125,8 @@ def main():
             process_response(bot, response)
         except Exception as e:
             logger.error(f"Ошибка при запросе данных API: {e}")
+        finally:
             time.sleep(RETRY_PERIOD)
-            continue
-
-        time.sleep(RETRY_PERIOD)
 
 
 def process_response(bot, response):
