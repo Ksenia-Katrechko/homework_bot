@@ -38,15 +38,30 @@ HOMEWORK_VERDICTS = {
 }
 
 
+last_message = ''
+
+
 def send_message(bot, message):
     """Отправляем сообщение в Telegram чат."""
+    global last_message
+    if message == last_message:
+        # Не отправляем сообщение, если оно совпадает с последним отправленным
+        # (проверка на дублирование)
+        return
     try:
         bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message)
         logger.debug(f'Сообщение "{message}" успешно отправлено в Телеграм')
+        last_message = message
     except telegram.TelegramError as e:
         logger.error(f'Ошибка при отправке сообщения: {e}')
-        raise APITelegramException('Ошибка при отправке'
-                                   'сообщения в Телеграм.') from e
+        raise APITelegramException('Ошибка при отправке сообщения'
+                                   'в Телеграм.') from e
+
+
+def send_error_to_telegram(error_message):
+    """Отправляем сообщение об ошибке в Телеграмм."""
+    bot = telegram.Bot(token=TELEGRAM_TOKEN)
+    bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=error_message)
 
 
 def get_api_answer(timestamp):
@@ -143,8 +158,6 @@ def process_response(bot, response):
                     messages_sent.append(message)
         except APIException as e:
             logger.error(f'Ошибка API: {e}')
-        except Exception as e:
-            logger.error(f'Неизвестная ошибка: {e}')
 
 
 if __name__ == '__main__':
